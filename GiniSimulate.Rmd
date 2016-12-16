@@ -19,13 +19,14 @@ library('gdata')
 library('sets')
 library('dynamicTreeCut')
 register(SerialParam())
-source("~/Documents/GiniClust/ginicalculate.R")
+source("PATH-TO/ginicalculate.R")   # Import the SCESet object of vMeyenn ESC
 ```
 
 ## 1. Creating the models
 
 ```{r simulation}
-sce.naive <- readRDS("~/Documents/sce_naive_object")
+sce.naive <- readRDS("PATH-TO/sce_naive_object")   # Import the SCESet object of naive vMeyenn ESC
+# Else: Import the whole object and filter only for naive cells
 genes <- paste0("gene", seq(1,10000,1))
 cells <- paste0("cell", seq(1,1000,1))
 disps <- estimateDisp(counts(sce.naive[1:length(genes),]))
