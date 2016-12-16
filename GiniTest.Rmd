@@ -16,13 +16,13 @@ library('biomaRt')
 library('gplots')
 library('gdata')
 register(SerialParam())
-source("~/Documents/GiniClust/ginicalculate.R")
+source("PATH-TO/ginicalculate.R")   # Import the Gini calculator functions
 ```
 
 ## 1. Extracting the transition subpopulation within the naive subpopulation by CV^2 method
 
 ```{r, cv2}
-sce <- readRDS("~/Documents/sce_object")
+sce <- readRDS("PATH-TO/sce_object")     # Import the SCESet object of vMeyenn ESC
 sce_cv2 <- sce[,pData(sce)$phenotype=="naive"] 
 sce_cv2$batch <- factor(sce_cv2$batch)
 cv2_out <- technicalCV2(sce_cv2, spike.type="Spike")
