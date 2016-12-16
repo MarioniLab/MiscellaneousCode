@@ -1,0 +1,221 @@
+---
+title: 'Gini Test #1'
+author: "Tobias Messmer"
+date: "11/14/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(error=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library('scater')
+library('scran')
+library('biomaRt')
+library('gplots')
+library('gdata')
+register(SerialParam())
+source("~/Documents/GiniClust/ginicalculate.R")
+```
+
+## 1. Extracting the transition subpopulation within the naive subpopulation by CV^2 method
+
+```{r, cv2}
+sce <- readRDS("~/Documents/sce_object")
+sce_cv2 <- sce[,pData(sce)$phenotype=="naive"] 
+sce_cv2$batch <- factor(sce_cv2$batch)
+cv2_out <- technicalCV2(sce_cv2, spike.type="Spike")
+cv2_hvg <- cv2_out[which(cv2_out$FDR <= 0.05),]
+cv2_hvg <- cv2_hvg[order(cv2_hvg$cv2, decreasing=TRUE),]
+dim(cv2_hvg)
+head(cv2_hvg)
+
+adj.exprs_cv2 <- exprs(sce_cv2)
+adj.exprs_cv2 <- removeBatchEffect(adj.exprs_cv2, batch=sce_cv2$batch) 
+norm_exprs(sce_cv2) <- adj.exprs_cv2
+
+chosen_cv2 <- rownames(cv2_hvg)
+```
+
+
+```{r, pca.cv2, fig.cap="**Figure 1:** PCA plots of normalized expression values for naive cells of the highly variable genes according to the cv2-method. The plots are colored according to their expression of KLF4 (left) and to their batch number (right)."}
+fontsize <- theme(axis.text=element_text(size=12), axis.title=element_text(size=16))
+pca1_cv2 <- plotPCA(sce_cv2, exprs_values="norm_exprs", colour_by="KLF4", feature_set = chosen_cv2) + fontsize
+pca2_cv2 <- plotPCA(sce_cv2, exprs_values="norm_exprs", colour_by="batch", feature_set = chosen_cv2) + fontsize
+multiplot(pca1_cv2, pca2_cv2, cols=2)
+```
+
+
+```{r, heat.cv2, fig.cap="**Figure 2:** Heatmap of subpopulations within the naive cell population as identified with CV2-method.", fig.height=14}
+chosen.exprs_cv2 <- norm_exprs(sce_cv2)[chosen_cv2,]
+my.dist_cv2 <- dist(t(chosen.exprs_cv2))
+my.tree_cv2 <- hclust(my.dist_cv2, method="ward.D2")
+my.clusters_cv2 <- unname(cutree(my.tree_cv2, k = 4)) 
+heat.vals_cv2 <- chosen.exprs_cv2 - rowMeans(chosen.exprs_cv2) 
+clust.col_cv2 <- rainbow(max(my.clusters_cv2))
+heatmap.2(heat.vals_cv2, col=bluered, symbreak=TRUE, trace='none', cexRow=0.3,
+ColSideColors=clust.col_cv2[my.clusters_cv2], Colv=as.dendrogram(my.tree_cv2), dendrogram = "column")
+```
+
+```{r, design.cv2}
+cluster_cv2 <- factor(my.clusters_cv2)
+de.design_cv2 <- model.matrix(~0 + cluster_cv2 + sce_cv2$batch) 
+head(colnames(de.design_cv2))
+y_cv2 <- convertTo(sce_cv2, type="edgeR")
+y_cv2 <- estimateDisp(y_cv2, de.design_cv2) 
+fit_cv2 <- glmFit(y_cv2, de.design_cv2)
+summary(y_cv2$tagwise.dispersion)
+clust.num_cv2 <- c("4")
+```
+
+```{r, marker_clust_cv2, fig.cap="**Figure 3:** Heatmap of DE relative to cluster 4 within naive cell subpopulation resulting from CV2-method."}
+result.logFC_cv2 <- result.PValue_cv2 <- list()
+chosen.clust_cv2 <- which(levels(cluster_cv2)==clust.num_cv2)
+
+for (clust in seq_len(nlevels(cluster_cv2))) {
+    if (clust==chosen.clust_cv2) { next }
+    contrast <- numeric(ncol(de.design_cv2))
+    contrast[chosen.clust_cv2] <- 1
+    contrast[clust] <- -1
+    res_cv2 <- glmLRT(fit_cv2, contrast=contrast)
+    con.name <- paste0('vs.', levels(cluster_cv2)[clust]) 
+    result.logFC_cv2[[con.name]] <- res_cv2$table$logFC 
+    result.PValue_cv2[[con.name]] <- res_cv2$table$PValue
+}
+
+collected.ranks_cv2 <- lapply(result.PValue_cv2, rank, ties="first")
+min.rank_cv2 <- do.call(pmin, collected.ranks_cv2)
+marker.set_cv2 <- data.frame(Top=min.rank_cv2, Gene=rownames(y_cv2),
+    logFC=do.call(cbind, result.logFC_cv2), stringsAsFactors=FALSE)
+marker.set_cv2 <- marker.set_cv2[order(marker.set_cv2$Top),]
+
+#write.table(marker.set_gini, file=paste0(output, "/marker_gini_", clust.num_gini, ".tsv"), sep="\t", quote=FALSE, col.names=NA) 
+top.markers_cv2 <- marker.set_cv2$Gene[marker.set_cv2$Top <= 10]
+top.exprs_cv2 <- norm_exprs(sce_cv2)[top.markers_cv2,,drop=FALSE]
+heat.vals_cv2 <- top.exprs_cv2 - rowMeans(top.exprs_cv2)
+heatmap.2(heat.vals_cv2, col=bluered, symbreak=TRUE, trace='none', cexRow=0.6, breaks = seq(-7,7, 1),  
+          ColSideColors=clust.col_cv2[my.clusters_cv2], Colv=as.dendrogram(my.tree_cv2), dendrogram='column')
+legend("bottomleft", col=clust.col_cv2, legend=sort(unique(my.clusters_cv2)), pch=16)
+```
+
+
+```{r, cv2PCA, fig.cap="**Figure 4:** PCA of all vMeyenn ESCs. The 'transition' subpopulation in the centre plot was identified with the CV2-method."}
+cv2_cells <- colnames(sce_cv2)[cluster_cv2 == "4"]
+sce_trans <- sce
+pData(sce_trans)$phenotype <- factor(pData(sce_trans)$phenotype, levels = c(levels(pData(sce_trans)$phenotype), "transition"))
+pData(sce_trans)[cv2_cells, ]$phenotype <- "transition"
+
+design <- model.matrix(~0 + sce$batch)
+var.fit <- trendVar(sce, trend="loess", span=0.4, design = design)
+var.out <- decomposeVar(sce, var.fit, assay="exprs", get.spikes=TRUE)
+
+# Filter out biologically irrelevant genes
+hvg.out <- var.out[which(var.out$FDR <= 0.05 & var.out$bio >= 0.5),]
+hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),]
+
+set.seed(100) 
+var.cor <- correlatePairs(sce, design = design, subset.row=rownames(hvg.out)[1:1000]) 
+sig.cor <- var.cor$FDR <= 0.05
+chosen <- unique(c(var.cor$gene1[sig.cor], var.cor$gene2[sig.cor]))
+
+pca2_cv1 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="KLF4", feature_set = chosen) + fontsize
+pca2_cv2 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="phenotype", feature_set = chosen) + fontsize
+pca2_cv3 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="batch", feature_set = chosen) + fontsize
+multiplot(pca2_cv1, pca2_cv2, pca2_cv3 ,cols=1)
+```
+
+## 2. Extracting the transition subpopulation within the naive subpopulation by GINI Index
+
+```{r, gini}
+sce_gini <- sce[,pData(sce)$phenotype=="naive"] 
+sce_gini$batch <- factor(sce_gini$batch)
+set.seed(100)
+sce_disp <- giniNull(sce_gini)
+gini_out <- giniCal(sce_gini, sce_disp)
+
+gini_hvg <- gini_out[which(gini_out$FDR <= 0.05),]
+gini_hvg <- gini_hvg[order(gini_hvg$GINI, decreasing=TRUE),]
+dim(gini_hvg)
+head(gini_hvg)
+
+adj.exprs_gini <- exprs(sce_gini)
+adj.exprs_gini <- removeBatchEffect(adj.exprs_gini, batch=sce_gini$batch) 
+norm_exprs(sce_gini) <- adj.exprs_gini
+
+chosen_gini <- rownames(gini_hvg)
+```
+
+```{r, pca.gini, fig.cap="**Figure 5:** PCA plots of normalized expression values for naive cells according to the HVG resulting from GINI-Index. The plots are colored according to their expression of KLF4 (left) and to their batch number (right)."}
+pca1_gini <- plotPCA(sce_gini, exprs_values="norm_exprs", colour_by="KLF4", feature_set = chosen_gini) + fontsize
+pca2_gini <- plotPCA(sce_gini, exprs_values="norm_exprs", colour_by="batch", feature_set = chosen_gini) + fontsize
+multiplot(pca1_gini, pca2_gini, cols=2)
+```
+
+Finally, we cluster the cells and visualize the clusters in a heatmap.
+
+```{r, heat.gini, fig.cap="**Figure 6:** Heatmap of subpopulations within the naive cell population identified with GINI.", fig.height=14}
+chosen.exprs_gini <- norm_exprs(sce_gini)[chosen_gini,]
+my.dist_gini <- dist(t(chosen.exprs_gini))
+my.tree_gini <- hclust(my.dist_gini, method="ward.D2")
+my.clusters_gini <- unname(cutree(my.tree_gini, k = 4)) 
+heat.vals_gini <- chosen.exprs_gini - rowMeans(chosen.exprs_gini) 
+clust.col_gini <- rainbow(max(my.clusters_gini))
+heatmap.2(heat.vals_gini, col=bluered, symbreak=TRUE, trace='none', cexRow=0.3,
+ColSideColors=clust.col_gini[my.clusters_gini], Colv=as.dendrogram(my.tree_gini), dendrogram = "column")
+```
+
+With a design matrix, it is possible to determine the DE genes between the naive and transition cells.
+```{r, design.gini}
+cluster_gini <- factor(my.clusters_gini)
+de.design_gini <- model.matrix(~0 + cluster_gini + sce_gini$batch) 
+head(colnames(de.design_gini))
+y_gini <- convertTo(sce_gini, type="edgeR")
+y_gini <- estimateDisp(y_gini, de.design_gini) 
+fit_gini <- glmFit(y_gini, de.design_gini)
+summary(y_gini$tagwise.dispersion)
+clust.num_gini <- c("3")
+```
+
+```{r, marker_clust_gini, fig.cap="**Figure 7:** Heatmap of DE relative to cluster 3 within naive cell subpopulation."}
+result.logFC_gini <- result.PValue_gini <- list()
+chosen.clust_gini <- which(levels(cluster_gini)==clust.num_gini)
+
+for (clust in seq_len(nlevels(cluster_gini))) {
+    if (clust==chosen.clust_gini) { next }
+    contrast <- numeric(ncol(de.design_gini))
+    contrast[chosen.clust_gini] <- 1
+    contrast[clust] <- -1
+    res_gini <- glmLRT(fit_gini, contrast=contrast)
+    con.name <- paste0('vs.', levels(cluster_gini)[clust]) 
+    result.logFC_gini[[con.name]] <- res_gini$table$logFC 
+    result.PValue_gini[[con.name]] <- res_gini$table$PValue
+}
+
+collected.ranks_gini <- lapply(result.PValue_gini, rank, ties="first")
+min.rank_gini <- do.call(pmin, collected.ranks_gini)
+marker.set_gini <- data.frame(Top=min.rank_gini, Gene=rownames(y_gini),
+    logFC=do.call(cbind, result.logFC_gini), stringsAsFactors=FALSE)
+marker.set_gini <- marker.set_gini[order(marker.set_gini$Top),]
+
+#write.table(marker.set_gini, file=paste0(output, "/marker_gini_", clust.num_gini, ".tsv"), sep="\t", quote=FALSE, col.names=NA) 
+top.markers_gini <- marker.set_gini$Gene[marker.set_gini$Top <= 10]
+top.exprs_gini <- norm_exprs(sce_gini)[top.markers_gini,,drop=FALSE]
+heat.vals_gini <- top.exprs_gini - rowMeans(top.exprs_gini)
+heatmap.2(heat.vals_gini, col=bluered, symbreak=TRUE, trace='none', cexRow=0.6, breaks = seq(-7,7, 1),  
+          ColSideColors=clust.col_gini[my.clusters_gini], Colv=as.dendrogram(my.tree_gini), dendrogram='column')
+legend("bottomleft", col=clust.col_gini, legend=sort(unique(my.clusters_gini)), pch=16)
+```
+
+
+```{r, gini2PCA, fig.cap="**Figure 8:** PCA of all vMeyenn ESCs. The 'transition' subpopulation in the centre plot was identified with the GINI-method."}
+gini_cells <- colnames(sce_gini)[cluster_gini == "4"]
+sce_trans <- sce
+pData(sce_trans)$phenotype <- factor(pData(sce_trans)$phenotype, levels = c("primed", "naive", "transition"))
+pData(sce_trans)[gini_cells, ]$phenotype <- "transition"
+
+pca2_gini1 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="KLF4", feature_set = chosen) + fontsize
+pca2_gini2 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="phenotype", feature_set = chosen) + fontsize
+pca2_gini3 <- plotPCA(sce_trans, exprs_values="exprs", colour_by="batch", feature_set = chosen) + fontsize
+multiplot(pca2_gini1, pca2_gini2, pca2_gini3 ,cols=1)
+```

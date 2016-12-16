@@ -1,0 +1,287 @@
+---
+title: 'Gini Simulation #2'
+author: "Tobias Messmer"
+date: "11/22/2016"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(error=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r libraries}
+library('scater')
+library('scran')
+library('biomaRt')
+library('gplots')
+library('gdata')
+library('sets')
+library('dynamicTreeCut')
+register(SerialParam())
+source("~/Documents/GiniClust/ginicalculate.R")
+```
+
+## 1. Creating the models
+
+```{r simulation}
+sce.naive <- readRDS("~/Documents/sce_naive_object")
+genes <- paste0("gene", seq(1,10000,1))
+cells <- paste0("cell", seq(1,1000,1))
+disps <- estimateDisp(counts(sce.naive[1:length(genes),]))
+means <- rowMeans(counts(sce.naive[1:length(genes),]))
+matrix <- list()
+set.seed(100)
+for (gene in 1:length(genes)){
+  matrix[[gene]] <- rnbinom(1000, mu = means[gene], size = 1/disps$tagwise.dispersion[gene])
+}
+matrix <- matrix(unlist(matrix), ncol = length(cells), byrow = TRUE)
+rownames(matrix) <- genes
+colnames(matrix) <- cells
+head(matrix[,1:5])
+dim(matrix)
+```
+
+Simulate Spikes
+
+```{r spikes}
+spike.mat <- list()
+spikes <- paste0("ERCC", seq(1,55,1))
+spike.disps <- estimateDisp(counts(sce.naive[isSpike(sce.naive),]))
+spike.means <- rowMeans(counts(sce.naive[isSpike(sce.naive),]))
+for (gene in 1:length(spikes)){
+  spike.mat[[gene]] <- rnbinom(1000, mu = spike.means[gene], size = 1/spike.disps$tagwise.dispersion[gene])
+}
+spike.mat <- matrix(unlist(spike.mat), ncol = length(cells), byrow = TRUE)
+matrix[(length(genes)-length(spikes)+1):length(genes),] <- spike.mat
+rownames(matrix)[(length(genes)-length(spikes)+1):length(genes)] <- spikes
+is.spike <- grepl("^ERCC", rownames(matrix))
+```
+
+Filter for only the genes with an average count higher than 1.
+
+## 2. Comparison
+
+Create subpopulation in matrix by multiply counts
+
+```{r addend}
+hvg <- 10
+altered.cells <- 100
+```
+
+Create new object 
+
+```{r test, fig.width=10, fig.height=10}
+jaccards <- list()
+
+for (factor in c(50, 20, 10, 5, 2)) { 
+  current.mat <- matrix
+  current.mat[1:(10*hvg), 1:altered.cells] <- current.mat[1:(10*hvg),1:altered.cells]*factor
+  sce.simu <- newSCESet(countData = current.mat)
+  sce.simu <- calculateQCMetrics(sce.simu, feature_controls = list(Spike=is.spike))
+  isSpike(sce.simu) <- "Spike"
+  sizeFactors(sce.simu) <- 1
+  # Select only good genes (otherwise GINI doesnt work)
+  keep <- rowMeans(counts(sce.simu)) >= 1
+  sce.simu <- sce.simu[keep,]
+
+  #variance method
+  var.fit <- trendVar(sce.simu, trend="loess")
+  var.out <- decomposeVar(sce.simu, var.fit, assay="exprs", get.spikes=TRUE)
+  hvg.out <- var.out[which(var.out$FDR <= 0.05 & var.out$bio >= 0.5),]
+
+  chosen <- rownames(hvg.out)
+  chosen.exprs <- exprs(sce.simu)[chosen,]
+  my.dist <- dist(t(chosen.exprs))
+  my.tree <- hclust(my.dist, method="ward.D2")
+  my.clusters <- unname(cutreeDynamic(my.tree, distM=as.matrix(my.dist), verbose=0, minClusterSize = 5))
+
+  # CV2 Method
+  cv2_out <- technicalCV2(sce.simu, spike.type="Spike")
+  cv2_hvg <- cv2_out[which(cv2_out$FDR <= 0.05),]
+  cv2_hvg <- cv2_hvg[order(cv2_hvg$cv2, decreasing=TRUE),]
+
+  chosen_cv2 <- rownames(cv2_hvg)
+  chosen.exprs_cv2 <- exprs(sce.simu)[chosen_cv2,]
+  my.dist_cv2 <- dist(t(chosen.exprs_cv2))
+  my.tree_cv2 <- hclust(my.dist_cv2, method="ward.D2")
+  my.clusters_cv2 <- unname(cutreeDynamic(my.tree_cv2, distM=as.matrix(my.dist_cv2), verbose=0, minClusterSize = 5))
+
+  # Gini Method
+  sce_disp <- giniNull(sce.simu)
+  gini_out <- giniCal(sce.simu, sce_disp)
+
+  gini_hvg <- gini_out[which(gini_out$FDR <= 0.05),]
+  gini_hvg <- gini_hvg[order(gini_hvg$GINI, decreasing=TRUE),]
+
+  chosen_gini <- rownames(gini_hvg)
+  chosen.exprs_gini <- exprs(sce.simu)[chosen_gini,]
+  my.dist_gini <- dist(t(chosen.exprs_gini))
+  my.tree_gini <- hclust(my.dist_gini, method="ward.D2")
+  my.clusters_gini <- unname(cutreeDynamic(my.tree_gini, distM=as.matrix(my.dist_gini), verbose=0, minClusterSize = 5))
+
+  # Calculate Jaccard Indizes
+  true.clust <- colnames(sce.simu[,1:altered.cells])
+  
+  ## Jaccard for Variance Method
+  clusters.var <- unique(my.clusters)
+  sim.max <- list()
+  for (clust in clusters.var){
+     check.clust <- colnames(sce.simu[,my.clusters==clust])
+     sim.max[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max <- as.matrix(unlist(sim.max))
+  sim.var <- cbind(max(sim.max))
+  
+  ## Jaccard for CV2 Method
+  clusters.cv2 <- unique(my.clusters_cv2)
+  sim.max.cv2 <- list()
+  for (clust in clusters.cv2){
+     check.clust <- colnames(sce.simu[,my.clusters_cv2==clust])
+     sim.max.cv2[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max.cv2 <- as.matrix(unlist(sim.max.cv2))
+  sim.cv2 <- cbind(max(sim.max.cv2))
+  
+  ## Jaccard for GINI Method
+  clusters.gini <- unique(my.clusters_gini)
+  sim.max.gini <- list()
+  for (clust in clusters.gini){
+     check.clust <- colnames(sce.simu[,my.clusters_gini==clust])
+     sim.max.gini[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max.gini <- as.matrix(unlist(sim.max.gini))
+  sim.gini <- cbind(max(sim.max.gini))
+
+  jaccards[[as.character(factor)]] <-round(rbind(sim.var, sim.cv2, sim.gini), digits=2)
+} # Close ridiculously huge for-loop
+
+jaccards <- t(as.matrix(as.data.frame(jaccards)))
+colnames(jaccards) <- c("Var", "CV2", "GINI")
+rownames(jaccards) <- c("50-fold change", "20-fold change", "10-fold change", "5-fold change", "2-fold change")
+plot <- barplot(jaccards, ylim=c(0,1.1), beside = TRUE, xlab="Method", ylab="Jaccard", 
+                legend.text = TRUE, main = paste0("Jaccard Index for ", altered.cells, " altered cells"))
+abline(h=0.11, lty= "dashed")
+text(x = plot, y = jaccards, label = jaccards, cex = 0.8, pos = 3,  col = "red")
+```
+
+```{r}
+altered.cells <- 50
+```
+```{r, ref.label= "test", echo=FALSE, fig.width=10, fig.height=10}
+```
+
+```{r}
+altered.cells <- 20
+```
+```{r, ref.label= "test", echo=FALSE, fig.width=10, fig.height=10}
+```
+
+```{r}
+altered.cells <- 10
+```
+```{r, ref.label= "test", echo=FALSE, fig.width=10, fig.height=10}
+```
+
+```{r}
+altered.cells <- 5
+```
+```{r, ref.label= "test", echo=FALSE, fig.width=10, fig.height=10}
+```
+
+
+```{r}
+altered.cells <- 2
+```
+```{r test2, echo=FALSE, fig.width=10, fig.height=10}
+jaccards <- list()
+
+for (factor in c(50, 20, 10, 5, 2)) { 
+  current.mat <- matrix
+  current.mat[1:(10*hvg), 1:altered.cells] <- current.mat[1:(10*hvg),1:altered.cells]*factor
+  sce.simu <- newSCESet(countData = current.mat)
+  sce.simu <- calculateQCMetrics(sce.simu, feature_controls = list(Spike=is.spike))
+  isSpike(sce.simu) <- "Spike"
+  sizeFactors(sce.simu) <- 1
+  # Select only good genes (otherwise GINI doesnt work)
+  keep <- rowMeans(counts(sce.simu)) >= 1
+  sce.simu <- sce.simu[keep,]
+
+  #variance method
+  var.fit <- trendVar(sce.simu, trend="loess")
+  var.out <- decomposeVar(sce.simu, var.fit, assay="exprs", get.spikes=TRUE)
+  hvg.out <- var.out[which(var.out$FDR <= 0.05 & var.out$bio >= 0.5),]
+
+  chosen <- rownames(hvg.out)
+  chosen.exprs <- exprs(sce.simu)[chosen,]
+  my.dist <- dist(t(chosen.exprs))
+  my.tree <- hclust(my.dist, method="ward.D2")
+  my.clusters <- unname(cutreeDynamic(my.tree, distM=as.matrix(my.dist), verbose=0, minClusterSize = 2))
+
+  # CV2 Method
+  cv2_out <- technicalCV2(sce.simu, spike.type="Spike")
+  cv2_hvg <- cv2_out[which(cv2_out$FDR <= 0.05),]
+  cv2_hvg <- cv2_hvg[order(cv2_hvg$cv2, decreasing=TRUE),]
+
+  chosen_cv2 <- rownames(cv2_hvg)
+  chosen.exprs_cv2 <- exprs(sce.simu)[chosen_cv2,]
+  my.dist_cv2 <- dist(t(chosen.exprs_cv2))
+  my.tree_cv2 <- hclust(my.dist_cv2, method="ward.D2")
+  my.clusters_cv2 <- unname(cutreeDynamic(my.tree_cv2, distM=as.matrix(my.dist_cv2), verbose=0, minClusterSize = 2))
+
+  # Gini Method
+  sce_disp <- giniNull(sce.simu)
+  gini_out <- giniCal(sce.simu, sce_disp)
+
+  gini_hvg <- gini_out[which(gini_out$FDR <= 0.05),]
+  gini_hvg <- gini_hvg[order(gini_hvg$GINI, decreasing=TRUE),]
+
+  chosen_gini <- rownames(gini_hvg)
+  chosen.exprs_gini <- exprs(sce.simu)[chosen_gini,]
+  my.dist_gini <- dist(t(chosen.exprs_gini))
+  my.tree_gini <- hclust(my.dist_gini, method="ward.D2")
+  my.clusters_gini <- unname(cutreeDynamic(my.tree_gini, distM=as.matrix(my.dist_gini), verbose=0, minClusterSize = 2))
+
+  # Calculate Jaccard Indizes
+  true.clust <- colnames(sce.simu[,1:altered.cells])
+  
+  ## Jaccard for Variance Method
+  clusters.var <- unique(my.clusters)
+  sim.max <- list()
+  for (clust in clusters.var){
+     check.clust <- colnames(sce.simu[,my.clusters==clust])
+     sim.max[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max <- as.matrix(unlist(sim.max))
+  sim.var <- cbind(max(sim.max))
+  
+  ## Jaccard for CV2 Method
+  clusters.cv2 <- unique(my.clusters_cv2)
+  sim.max.cv2 <- list()
+  for (clust in clusters.cv2){
+     check.clust <- colnames(sce.simu[,my.clusters_cv2==clust])
+     sim.max.cv2[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max.cv2 <- as.matrix(unlist(sim.max.cv2))
+  sim.cv2 <- cbind(max(sim.max.cv2))
+  
+  ## Jaccard for GINI Method
+  clusters.gini <- unique(my.clusters_gini)
+  sim.max.gini <- list()
+  for (clust in clusters.gini){
+     check.clust <- colnames(sce.simu[,my.clusters_gini==clust])
+     sim.max.gini[[clust]] <- (length(intersect(true.clust, check.clust))) / length(unique(c(true.clust, check.clust)))
+  }
+  sim.max.gini <- as.matrix(unlist(sim.max.gini))
+  sim.gini <- cbind(max(sim.max.gini))
+
+  jaccards[[as.character(factor)]] <-round(rbind(sim.var, sim.cv2, sim.gini), digits=2)
+} # Close ridiculously huge for-loop
+
+jaccards <- t(as.matrix(as.data.frame(jaccards)))
+colnames(jaccards) <- c("Var", "CV2", "GINI")
+rownames(jaccards) <- c("50-fold change", "20-fold change", "10-fold change", "5-fold change", "2-fold change")
+plot <- barplot(jaccards, ylim=c(0,1.1), beside = TRUE, xlab="Method", ylab="Jaccard", legend.text = TRUE, main = paste0("Jaccard Index for ", altered.cells, " altered cells"))
+abline(h=0.11, lty= "dashed")
+text(x = plot, y = jaccards, label = jaccards, cex = 0.8, pos = 3,  col = "red")
+```
