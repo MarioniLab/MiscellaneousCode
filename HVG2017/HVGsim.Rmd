@@ -1,0 +1,243 @@
+---
+title: Simulating various types of HVGs 
+author: Aaron Lun
+date: 26 January 2017
+output:
+  html_document:
+    fig_caption: false 
+---
+
+```{r, echo=FALSE, results="hide"}
+knitr::opts_chunk$set(error=FALSE, warning=FALSE, message=FALSE)
+options(width=100)
+```
+
+# Introduction
+
+This simulation describes various types of HVGs and the relative capabilities of different HVG detection methods to, well, detect them.
+Firstly, setting up a function to generate gene expression values for non-HVGs.
+
+```{r}
+nsamples <- 1000   
+computeDisp <- function(means) {
+    10/means + 0.2
+}
+standardSetup <- function(ngenes, nspikes) { 
+    total.genes <- ngenes + nspikes 
+    means <- 2^runif(total.genes, -2, 10) 
+    dispersions <- computeDisp(means)
+    counts <- matrix(rnbinom(total.genes*nsamples, mu=means, size=1/dispersions), ncol=nsamples) 
+    is.spike <- logical(total.genes) 
+    is.spike[seq_len(nspikes)] <- TRUE 
+    return(list(counts=counts, is.spike=is.spike)) 
+} 
+```
+
+# Genes involved in trajectories
+
+Setting up the standard counts first.
+
+```{r}
+library(scran)
+set.seed(100)
+sim <- standardSetup(1000, 100)
+counts <- sim$counts
+is.spike <- sim$is.spike
+```
+
+Adding some substructure - in this case, a trajectory.
+This involves different genes going from a count of 1 to 50-1000.
+
+```{r}
+affect <- 20
+mu.values <- matrix(1:nsamples, ncol=nsamples, nrow=affect, byrow=TRUE)/(affect:1)
+disp.values <- computeDisp(mu.values)
+to.change <- sum(is.spike)+1:affect
+counts[to.change,] <- rnbinom(length(mu.values), mu=mu.values, size=1/disp.values)
+```
+
+CV2 picks up few of the HVGs, as the CV^2^ is too small.
+Might be due to a continuum, where the variance just can't get particularly large (compared to bimodal expression patterns).
+It gets better if you turn off `min.bio.disp`, but that also increases the background.
+
+<!--
+12/51, and 20/84
+-->
+
+```{r cv2plotter}
+out <- technicalCV2(counts, is.spike, sf.cell=rep(1, nsamples), sf.spike=rep(1, nsamples))
+plot(out$mean, out$cv2, log="xy", )
+points(out$mean, out$trend, col="red", pch=16, cex=0.5)
+is.sig <- which(out$FDR <= 0.05 & !is.na(out$FDR))
+length(intersect(is.sig, to.change))
+length(is.sig)
+out <- technicalCV2(counts, is.spike, sf.cell=rep(1, nsamples), sf.spike=rep(1, nsamples), min.bio.disp=0)
+is.sig <- which(out$FDR <= 0.05 & !is.na(out$FDR))
+length(intersect(is.sig, to.change))
+length(is.sig)
+```
+
+Log-variances picks up all of the HVGs but none of the noise, with a relatively small increase in background upon losing `bio > 0.5`.
+
+<!--
+20/20 and 20/34
+-->
+
+```{r logplotter}
+lcounts <- log2(counts+1)
+fit <- trendVar(lcounts[is.spike,], span=0.2)
+ref <- decomposeVar(lcounts, fit)
+plot(ref$mean, ref$total)
+curve(fit$trend(x), add=TRUE, col='red')
+is.sig <- which(ref$FDR <= 0.05 & !is.na(ref$FDR) & ref$bio > 0.5)
+length(intersect(is.sig, to.change))
+length(is.sig)
+is.sig <- which(ref$FDR <= 0.05) 
+length(intersect(is.sig, to.change))
+length(is.sig)
+```
+
+# Genes involved in clustering
+
+Setting up the standard genes again.
+
+```{r}
+set.seed(200)
+sim <- standardSetup(1000, 100)
+counts <- sim$counts
+is.spike <- sim$is.spike
+```
+
+Adding some substructure - in this case, some clusters, by doubling expression in the first half of cells.
+
+```{r}
+to.change <- sum(is.spike) + 1:50
+counts[to.change,1:500] <- counts[to.change,1:500] * 2
+```
+
+Few of the HVGs are picked up with the CV^2^ method, again presumably because the `min.bio.disp` argument overwhelms the actual increase in the CV^2^.
+Turning it off improves detection but also carries a lot of extra noise with it.
+
+<!--
+17/56, and 48/141
+-->
+
+```{r, ref.label="cv2plotter"}
+```
+
+A similar number get picked up, but with less background, in the log-variance method.
+Dropping the requirement for `bio > 0.5` results in more detection with a little increase in background.
+
+<!--
+18/18, and 47/48
+-->
+
+```{r, ref.label="logplotter"}
+```
+
+# Genes in rare populations
+
+## Upregulated in the rare population
+
+Now testing for genes that are upregulated in a rare subpopulation.
+
+```
+set.seed(300)
+sim <- standardSetup(5000, 500)
+counts <- sim$counts
+is.spike <- sim$is.spike
+```
+
+Adding some genes only present in a small (1%) subpopulation.
+
+```{r}
+to.change <- sum(is.spike) + 1:500
+rare.means <- 1:500*20
+rare.disp <- computeDisp(rare.means)
+nrare <- nsamples/100
+counts[to.change,] <- 0L
+counts[to.change,1:nrare] <- rnbinom(nrare*length(rare.means), mu=rare.means, size=1/rare.means)
+```
+
+The CV^2^ method can detect these changes at a count of ~10.
+This makes sense as the CV^2^ method is highly sensitive to large outliers, which inflate the variance without increasing the mean as much.
+
+<!--
+28/51
+-->
+
+```{r}
+out <- technicalCV2(counts, is.spike, sf.cell=rep(1, nsamples), sf.spike=rep(1, nsamples))
+plot(out$mean, out$cv2, log="xy")
+points(out$mean, out$trend, col="red", pch=16, cex=0.5)
+rare.sig <- intersect(to.change, which(out$FDR <= 0.05)) 
+rare.means[rare.sig - sum(is.spike)]
+length(rare.sig)
+sum(out$FDR <= 0.05, na.rm=TRUE)
+```
+
+Log-variances requires a higher count, or just doesn't detect it at all.
+This is because the log-transformation squishes the highly expressing genes downward, requiring them to be exponentially more DE to make an impact.
+
+<!--
+1/1 and 0/0
+-->
+
+```{r}
+lcounts <- log2(counts+1)
+fit <- trendVar(lcounts[is.spike,], span=0.2)
+ref <- decomposeVar(lcounts, fit)
+plot(ref$mean, ref$total)
+curve(fit$trend(x), col="red", add=TRUE)
+rare.sig <- intersect(to.change, which(ref$FDR <= 0.05)) 
+rare.means[rare.sig - sum(is.spike)]
+length(rare.sig)
+sum(ref$FDR <= 0.05, na.rm=TRUE)
+rare.sig <- intersect(to.change, which(ref$FDR <= 0.05 & ref$bio > 0.5)) 
+rare.means[rare.sig - sum(is.spike)]
+length(rare.sig)
+sum(ref$FDR <= 0.05 & ref$bio > 0.5, na.rm=TRUE)
+```
+
+## Downregulated in the rare population
+
+What about genes going in the other direction?
+First, setting up the standard set.
+
+```{r}
+set.seed(100)
+sim <- standardSetup(5000, 500)
+counts <- sim$counts
+is.spike <- sim$is.spike
+```
+
+Adding some genes that are exclusively silent in a small (1%) subpopulation.
+
+```{r}
+to.change <- sum(is.spike) + 1:500
+counts[to.change,1:nrare] <- 0
+```
+
+CV^2^ detects a few, presumably because loss of expression doesn't make a bit dent on the CV^2^ when the mean is already large.
+
+<!--
+21/259, and 67/469
+-->
+
+```{r, ref.label="cv2plotter"}
+```
+
+The log-variance method detects more.
+
+<!--
+129/129, and 251, 430
+-->
+
+```{r, ref.label="logplotter"}
+```
+
+# Wrapping up
+
+```{r}
+sessionInfo()
+```
