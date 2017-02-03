@@ -153,4 +153,5 @@ Calculating the relative difference from the reference.
 Of the possible metrics for computing biological components, the absolute difference in the CV^2^ is most stable with respect to changes in the technical noise profile.
 Note that this only accounts for the expectation of the biological component and does not consider changes to the sampling distribution.
 It also makes no statement about the validity of the null model, either, for any given scenario.
+We're focusing here on distortions to the size of the biological component as this will affect detection differential variability.
 
