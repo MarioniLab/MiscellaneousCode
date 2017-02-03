@@ -1,0 +1,156 @@
+---
+title: Simulating differential HVGs 
+author: Aaron Lun
+date: 3 February 2017
+output:
+  html_document:
+    fig_caption: false 
+---
+
+```{r, echo=FALSE, results="hide"}
+dir.create("figure-diff", showWarning=FALSE)
+knitr::opts_chunk$set(error=FALSE, warning=FALSE, message=FALSE, fig.path="figure-diff/")
+options(width=100)
+```
+
+# Overview
+
+The problem is that changes to technical noise do not preserve the measures of biological variability.
+We will consider the following model:
+
+- True transcript molecule counts are distributed based on a NB distribution, with mean $\mu$ and _biological_ dispersion $\phi$.
+- Transcripts are captured into cDNA molecules based on a binomial distribution with probability $p$, itself Beta-distributed across cells.
+- The number of cDNA molecules is scaled by $(1+X)^3$ where $X$ is Beta-distributed across cells and represents amplification efficiency across 3 PCR cycles.
+- Seqeuncing noise is binomial with some constant probability across cells (we will ignore fragmentation for now).
+
+This yields the following simulation function:
+
+```{r}
+ncells <- 10000
+set.seed(105872)
+simCounts <- function(mu, disp, capture.args, amp.args, seq.prop) {
+    y.t <- rnbinom(ncells, mu=mu, size=1/disp)
+    y.c <- rbinom(ncells, size=y.t, p=rbeta(ncells, capture.args[1], capture.args[2]))
+    amp.eff <- (1+rbeta(ncells, amp.args[1], amp.args[2]))^3
+    y.ca <- round(y.c * amp.eff)
+    y.r <- rbinom(ncells, size=y.ca, p=seq.prop)
+    return(y.r)
+}
+```
+
+We also define various metrics for computing the biological component of variation.
+
+```{r}
+getBio <- function(bio, tech) {
+    bio.cv2 <- var(bio)/mean(bio)^2
+    tech.cv2 <- var(tech)/mean(tech)^2
+    bio.log <- var(log2(bio+1)) 
+    tech.log <- var(log2(tech+1))
+    return(list(Estimates=data.frame(bio.cv2, tech.cv2, bio.log, tech.log),
+                Components=data.frame(AbsCV2=bio.cv2 - tech.cv2,
+                                      RelCV2=bio.cv2/tech.cv2,
+                                      AbsLog=bio.log - tech.log,
+                                      RelLog=bio.log/tech.log)))
+}
+```
+
+To demonstrate, let's set up a simulation involving zero and non-zero values of `disp`.
+
+```{r}
+mu <- c(10, 10, 100, 100, 1000, 1000)
+disp <- c(0.5, 2, 0.5, 2, 0.5, 2)
+cap.args <- c(5, 50)
+amp.args <- c(10, 1)
+seq.prop <- 0.1
+```
+
+Now we compute biological components across all simulation scenarios.
+
+```{r simulate_and_run}
+collected.com <- list()
+collected.est <- list()
+for (i in seq_along(mu)) {
+    y.bio <- simCounts(mu=mu[i], disp=disp[i], capture.args=cap.args, amp.args=amp.args, seq.prop=seq.prop)
+    y.tech <- simCounts(mu=mu[i], disp=1e-8, capture.args=cap.args, amp.args=amp.args, seq.prop=seq.prop)
+    out <- getBio(y.bio, y.tech)
+    collected.est[[i]] <- data.frame(Mu=mu[i], Disp=disp[i], out$Estimates)
+    collected.com[[i]] <- data.frame(Mu=mu[i], Disp=disp[i], out$Components)
+}
+do.call(rbind, collected.est)
+obs <- do.call(rbind, collected.com)
+obs
+```
+
+Storing these as the reference results.
+
+```{r}
+ref <- obs
+``` 
+
+# Changing the capture efficiency
+
+First, we consider what happens if capture efficiency increases.
+
+```{r}
+cap.args <- c(10, 50)
+amp.args <- c(10, 1)
+```
+
+Running across the simulations.
+
+```{r, ref.label="simulate_and_run"}
+```
+
+Calculating the relative difference (in percentages) from the reference.
+
+```{r}
+(obs/ref - 1)*100
+```
+
+# Changing the amplification rate
+
+Increasing the variability of the amplification distribution.
+
+```{r}
+cap.args <- c(5, 50)
+amp.args <- c(5, 1)
+```
+
+Running across the simulations.
+
+```{r, ref.label="simulate_and_run"}
+```
+
+Calculating the relative difference from the reference.
+
+```{r}
+(obs/ref - 1)*100
+```
+
+# Changing the sequencing depth
+
+Increasing the sequencing depth.
+
+```{r}
+cap.args <- c(5, 50)
+amp.args <- c(10, 1)
+seq.prop <- 0.5
+```
+
+Running across the simulations.
+
+```{r, ref.label="simulate_and_run"}
+```
+
+Calculating the relative difference from the reference.
+
+```{r}
+(obs/ref - 1)*100
+```
+
+# Conclusion
+
+Of the possible metrics for computing biological components, the absolute difference in the CV^2^ is most stable with respect to changes in the technical noise profile.
+Note that this only accounts for the expectation of the biological component and does not consider changes to the sampling distribution.
+It also makes no statement about the validity of the null model, either, for any given scenario.
+
