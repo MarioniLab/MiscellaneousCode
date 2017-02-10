@@ -151,7 +151,34 @@ Calculating the relative difference from the reference.
 # Conclusion
 
 Of the possible metrics for computing biological components, the absolute difference in the CV^2^ is most stable with respect to changes in the technical noise profile.
-Note that this only accounts for the expectation of the biological component and does not consider changes to the sampling distribution.
-It also makes no statement about the validity of the null model, either, for any given scenario.
+This suggests it is the best to use for identifying DVGs in situations where technical noise varies between conditions.
+Otherwise, changes in the biological component could be spurious and caused by changes to the underlying technical noise.
+
+Note that this conclusion only accounts for the expectation of the biological component and does not consider changes to the sampling distribution.
+In particular, the standard error of the CV^2^ estimate scales with the size of the estimate:
+
+```{r}
+iters <- 1000
+collected.var <- list()
+collected.val <- list()
+index <- 1L
+for (disp in c(0.1, 0.3, 0.5, 0.7, 0.9)) {
+     y <- matrix(rnbinom(100*iters, mu=100, size=1/disp), nrow=ncells)
+     cv2 <- apply(y, 1, var)/rowMeans(y)^2
+     collected.val[[index]] <- mean(cv2)
+     collected.var[[index]] <- var(cv2)
+     index <- index + 1L
+}
+plot(unlist(collected.val), sqrt(unlist(collected.var)), 
+     xlab="Mean CV2", ylab="Standard error of CV2")
+```
+
+Consider a gene where the biological components are identical between conditions, but the technical variance is higher in one condition.
+In that condition, you will get more variable estimates and larger apparent increases (or decreases) in the components between conditions.
+This suggests that you should also inspect the ratio (i.e., relative CV^2^) to make sure that the change is not driven by an increase in sampling variability.
+In other words, a gene is only considered a DVG if it changes in the same direction for both the absolute and relative CV^2^.
+
+Note that the simulations above make no statement about the validity of the null model, either, for any given scenario.
 We're focusing here on distortions to the size of the biological component as this will affect detection differential variability.
+The correctness of the HVG detections within each scenario is another matter.
 
