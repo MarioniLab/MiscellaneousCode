@@ -288,6 +288,60 @@ The log-variance method detects more.
 ```{r, ref.label="logplotter"}
 ```
 
+# Ranking of outliers
+
+Another aspect of HVG detection methods is how they rank the discoveries.
+This is important to the intepretation of the HVG list, if one were to have a look at which genes were driving heterogeneity.
+The key point here is that methods based on the CV^2^ will favour genes with outliers above all others.
+Let's simulate some counts:
+
+```{r}
+set.seed(100)
+sim <- standardSetup(5000, 500)
+counts <- sim$counts
+is.spike <- sim$is.spike
+```
+
+Now, we add some HVGs - either with a single outlier, or with a range of variation in expression.
+Arguably, the second to fourth examples are systematically more variable than the first example with the outlier.
+
+```{r}
+starting <- sum(is.spike)
+rownames(counts) <- paste0("other", seq_len(nrow(counts)))
+for (it in seq_len(10)) { 
+    cur.mean <- it*10
+    counts[starting + 1,] <- c(cur.mean*nsamples, integer(nsamples-1)) # outlier
+    counts[starting + 2,] <- rnbinom(nsamples, mu=cur.mean, size=0.2) 
+    counts[starting + 3,] <- rnbinom(nsamples, mu=cur.mean, size=0.5)
+    counts[starting + 4,] <- rnbinom(nsamples, mu=cur.mean, size=1)
+    rownames(counts)[starting + 1:4] <- paste0(it, ".", c("outlier", "5", "2", "1"))
+    starting <- starting + 4
+}
+```
+
+We look at the ranking of the HVGs from each method, as sorted by the biological component.
+(The _p_-value sorting isn't as interesting in terms of what actually contributes to the heterogeneity in expression in absolute terms.)
+First, the variance-of-logs method picks up the non-outliers:
+
+```{r}
+lcounts <- log2(counts+1)
+fit <- trendVar(lcounts[is.spike,], span=0.2)
+ref <- decomposeVar(lcounts, fit)
+head(ref[order(ref$bio, decreasing=TRUE),], 20)
+```
+
+Whereas, for the CV^2^ methods, the outliers dominate the ranking:
+
+```{r}
+out <- technicalCV2(counts, is.spike, sf.cell=1, sf.spike=1)
+head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 20)
+out <- improvedCV2(counts, is.spike, sf.cell=1, sf.spike=1)
+head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 20)
+```
+
+In general, count-based models put too much weight on large outliers.
+This is another motivation for the use of the variance-of-logs method.
+
 # Wrapping up
 
 To conclude, the `technicalCV2` method almost always just gives more noise at a FDR of 5%, without any appreciable increase in power.
