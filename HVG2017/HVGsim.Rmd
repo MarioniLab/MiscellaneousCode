@@ -321,7 +321,7 @@ for (it in seq_len(10)) {
 
 We look at the ranking of the HVGs from each method, as sorted by the biological component.
 (The _p_-value sorting isn't as interesting in terms of what actually contributes to the heterogeneity in expression in absolute terms.)
-First, the variance-of-logs method picks up the non-outliers:
+First, the variance-of-logs method picks up the non-outliers first:
 
 ```{r}
 lcounts <- log2(counts+1)
@@ -339,8 +339,10 @@ out <- improvedCV2(counts, is.spike, sf.cell=1, sf.spike=1)
 head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 20)
 ```
 
-In general, count-based models put too much weight on large outliers.
+In general, count-based models put too much weight on large outliers, such that they cannot be easily removed from the HVG list.
 This is another motivation for the use of the variance-of-logs method.
+The reduced biological component for outliers from the variance-of-logs method allows them to be effectively removed by the additional `> 0.5` filtering.
+Additional filtering is necessary as the null is false when outliers are present and will be rejected with enough cells, regardless of the statistical approach.
 
 # Wrapping up
 
