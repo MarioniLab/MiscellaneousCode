@@ -330,27 +330,34 @@ ref <- decomposeVar(lcounts, fit)
 head(ref[order(ref$bio, decreasing=TRUE),], 20)
 ```
 
-For the CV^2^ methods, the outliers dominate the ranking, regardless of whether we use the absolute difference or the fold-change:
+Of course, the outliers will get picked up eventually, as the null is false and will eventually be rejected when you have enough cells.
+Even so, the biological component for outliers from the variance-of-logs method is a lot smaller.
+This allows them to be effectively removed by the additional `> 0.5` filtering.
+
+```{r}
+ref[grep("outlier", rownames(ref)),]
+```
+
+For the CV^2^ methods, the outliers dominate the ranking, regardless of whether we use the absolute difference or the fold-change.
+This makes it difficult to prune them from the HVG list.
+You could set an "expressed in at least N cells" requirement, but then that comes down to the choice of N.
 
 ```{r}
 out <- technicalCV2(counts, is.spike, sf.cell=1, sf.spike=1)
-head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 20)
-head(out[order(out$cv2/out$trend, decreasing=TRUE),], 20)
+head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 10)
+head(out[order(out$cv2/out$trend, decreasing=TRUE),], 10)
 out <- improvedCV2(counts, is.spike, sf.cell=1, sf.spike=1)
-head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 20)
-head(out[order(out$cv2/out$trend, decreasing=TRUE),], 20)
+head(out[order(out$cv2 - out$trend, decreasing=TRUE),], 10)
+head(out[order(out$cv2/out$trend, decreasing=TRUE),], 10)
 ```
-
-In general, count-based models put too much weight on large outliers, such that they cannot be easily removed from the HVG list.
-This is another motivation for the use of the variance-of-logs method.
-The reduced biological component for outliers from the variance-of-logs method allows them to be effectively removed by the additional `> 0.5` filtering.
-(Regardless of the statistical approach, additional filtering is necessary as the null is false when outliers are present and will be rejected when you have enough cells.)
 
 # Wrapping up
 
-To conclude, the `technicalCV2` method almost always just gives more noise at a FDR of 5%, without any appreciable increase in power.
-If you throw in the bizarre trend fit and the testing procedure, it's clear that the choice is between `improvedCV2` and `trendVar`.
+To conclude, the `technicalCV2` method just gives more noise at a FDR of 5%, without any appreciable increase in power.
+This is probably a consequence of the odd trend fitting procedure and the unjustified statistical test, rather than anything to do with the CV^2^ itself.
+From these results, it's clear that the choice of HVG detection method is between `improvedCV2` and `trendVar`.
 They are fairly balanced though the former is better at detecting upregulated genes in rare populations and the latter is better at detecting downregulated genes.
+`trendVar` is also less prone to detecting genes driven by outlier expression patterns.
 
 ```{r}
 sessionInfo()
