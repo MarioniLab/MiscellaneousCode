@@ -236,8 +236,8 @@ This is due to the removal of genes in which technical noise is the only contrib
 
 The argument for selecting correlated HVGs is harder to make because the PCs should directly capture relevant substructure.
 However, remember that random biological noise is still present amongst the retained PCs - only technical noise was removed in this framework.
-Selection of correlated genes should help in resolving substructure by reducing this random biological noise.
-It would also ensure that the very earliest PCs contain the substructure, not noise, reducing the chance of accidentally discarding them if they were in later PCs.
+Selection of correlated genes should help in resolving substructure by reducing this random noise.
+It shouldn't affect retention, though, as the presence of biological correlations shouldn't affect the amount of technical variance that needs to be removed.
 
 <!--
 Testing on real data:
