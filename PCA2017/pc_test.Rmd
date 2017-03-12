@@ -1,0 +1,225 @@
+---
+title: Evaluating the selection of principal components for denoising
+author: Aaron Lun
+date: 12 March 2017 
+output:
+  html_document:
+    fig_caption: false 
+---
+
+```{r, echo=FALSE, results="hide"}
+set.seed(100)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# Introduction 
+
+The aim is to perform PCA on log-expression values and to select a subset of earlier PCs for further analysis.
+Later PCs are removed until the sum of discarded variance is equal to the total technical noise (as determined by variance decomposition).
+This eliminates random technical noise and improves the resolution of biological substructure in downstream steps,
+
+Here, we set up a function that chooses the last PC to keep.
+For simplicity, the function estimated the technical noise based on the difference in variances across the observed and true expression values.
+The observed expression should have some degree of added technical noise, while the true expression is purely biological.
+
+```{r}
+choosePC <- function(pca, observed, truth) {
+    leftovers <- sum(apply(observed, 1, var)) - sum(apply(truth, 1, var))
+    npcs <- ncol(pca$x)
+    npcs - max(which(cumsum(rev(pca$sdev^2)) <= leftovers)) 
+}
+```
+
+This approach is based on the assumption that technical noise is random while biological variance is correlated across genes.
+Thus, biological factors will contribute to earlier PCs as it will explain more variance across its set of genes.
+Technical noise will only contribute to later PCs as variance can only be explained across one gene at a time.
+
+# Simulating various scenarios for PC removal
+
+## Overview
+
+The aim of this section is to verify that the later PCs do not contain biology, and thus are safe to remove.
+This is done by projecting the true expression onto the new axes and seeing how much variance is present in each PC.
+Ideally, the earlier PCs would contain all of the biological variance, meaning that the later PCs are safe to remove. 
+The last PC to keep is determined using `choosePC` above. 
+
+```{r}
+makePlot <- function(observed, truth) { 
+    x <- prcomp(t(observed))  
+    total.var <- sum(x$sdev^2)
+    stopifnot(isTRUE(all.equal(total.var, sum(apply(observed, 1, var)))))
+    stopifnot(isTRUE(all.equal(total.var, sum(apply(x$x, 2, var)))))
+
+    blah <- t(true.means - x$center) %*% x$rotation 
+    plot(apply(blah, 2, var), ylab="Biological variance explained", 
+        xlab="PC number", pch=16, cex=1.8, log="x")
+    abline(v=choosePC(x, observed, truth)+1, col="red", lwd=1, lty=2)
+}
+```
+
+I should point out that the cut-off point in contributed variance looks obvious in many of the plots below.
+However, this is _only_ because we know the true biology and are projecting it onto the empirical PC space.
+If you throw in the technical noise, the drop becomes a lot smoother and cannot be easily selected from the variance contributions.
+
+## Simulating clusters
+
+### Strong clusters supported by all genes
+
+Generally chooses the right cut-off.
+
+```{r, fig.width=15, fig.height=6}
+ngenes <- 1000
+npops <- 5
+ncells <- 100
+par(mfrow=c(1,3))
+for (it in 1:3) {
+    pops <- matrix(rnorm(npops * ngenes), ncol=npops)
+    in.pop <- sample(npops, ncells, replace=TRUE)
+    true.means <- pops[,in.pop,drop=FALSE]
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+### Strong clusters supported by few genes
+
+Cuts too early, probably because technical noise leaks into the earlier PCs.
+This reduces the variance sum of the later PCs and shifts the cut point to an earlier point.
+Note that some biology also leaks into the later PCs, but this is not an even trade when the total technical noise is much higher than the total biological variance.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    pops <- matrix(rnorm(npops * ngenes), ncol=npops)
+    in.pop <- sample(npops, ncells, replace=TRUE)
+    true.means <- pops[,in.pop,drop=FALSE]
+    true.means[201:ngenes,] <- 0 
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+In any case, this problem should be mitigated by HVG selection, which should reduce the relative contribution of technical noise.
+
+### Weak clusters supported by all genes
+
+Again, cuts too early.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    pops <- matrix(rnorm(npops * ngenes), ncol=npops)
+    in.pop <- sample(npops, ncells, replace=TRUE)
+    true.means <- pops[,in.pop,drop=FALSE] * 0.2
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+### Weak clusters supported by few genes
+
+This fails pretty much completely.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    pops <- matrix(rnorm(npops * ngenes), ncol=npops)
+    in.pop <- sample(npops, ncells, replace=TRUE)
+    true.means <- pops[,in.pop,drop=FALSE] * 0.2
+    true.means[201:ngenes,] <- 0
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+## Simulating trajectories
+
+### Strong trajectory supported by all genes
+
+Works okay.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    true.means <- matrix(rnorm(ncells), nrow=ngenes, ncol=ncells, byrow=TRUE)
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+### Strong trajectory supported by fewer genes
+
+Works okay.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    true.means <- matrix(rnorm(ncells), nrow=ngenes, ncol=ncells, byrow=TRUE)
+    true.means[21:ngenes,] <- 0 
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+### Weak trajectory supported by all genes
+
+Works okay.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    true.means <- matrix(rnorm(ncells), nrow=ngenes, ncol=ncells, byrow=TRUE) * 0.1
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+### Weak trajectory supported by few genes
+
+This fails completely.
+
+```{r, fig.width=15, fig.height=6}
+par(mfrow=c(1,3))
+for (it in 1:3) { 
+    true.means <- matrix(rnorm(ncells), nrow=ngenes, ncol=ncells, byrow=TRUE) * 0.1
+    true.means[21:ngenes,] <- 0 
+    y <- matrix(rnorm(ngenes*ncells, mean=true.means), ncol=ncells)
+    makePlot(y, true.means)
+}
+```
+
+# Using residuals as PCA input
+
+The final question is what to do when we have a design matrix and need to regress out known factors of variation.
+We could compute residual effects, which would ensure that the sum of variances is consistent with HVG detection.
+However, this would also change the meaning of the cells such that we wouldn't be able to cluster anymore.
+Thus, we need to use residuals here, but this will underestimate the variance. 
+
+```{r}
+groupings <- factor(sample(1:2, ncells, replace=TRUE))
+design <- model.matrix(~groupings)
+library(limma)
+y <- matrix(rnorm(ngenes*ncells), ncol=ncells)
+sum(apply(y, 1, var))
+r <- lm.fit(x=design, t(y))$residuals
+sum(apply(r, 2, var))
+```
+
+We can probably determine the degree of underestimation based on the differences in total variance.
+Assuming that the underestimation affects all PCs equally, we can just scale the contributed variance back up.
+This should be relatively minor if the number of residual d.f. is very high (i.e., many more cells than factors).
+
+```{r}
+sum(apply(r, 2, var))/sum(apply(y, 1, var))
+```
+
+<!--
+Testing on real data:
+
+```{r, eval=FALSE, echo=FALSE}
+x <- prcomp(t(exprs(sce)[rownames(hvg.out),]))
+chosen <- length(x$sdev) - max(which(cumsum(rev(x$sdev^2)) <=  sum(hvg.out$tech)))
+library(gplots)
+heatmap.2(t(x$x[,1:chosen]), trace="none", col=bluered)
+```
+-->
