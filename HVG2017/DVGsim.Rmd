@@ -180,5 +180,5 @@ In other words, a gene is only considered a DVG if it changes in the same direct
 
 Note that the simulations above make no statement about the validity of the null model, either, for any given scenario.
 We're focusing here on distortions to the size of the biological component as this will affect detection differential variability.
-The correctness of the HVG detections within each scenario is another matter.
+For HVG detections within each scenario, distortions to the size of the biological component, as long as it doesn't affect whether they are zero or non-zero.
 
