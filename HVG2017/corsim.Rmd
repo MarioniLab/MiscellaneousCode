@@ -137,18 +137,22 @@ An _ad hoc_ solution is to set all residuals computed from zeroes to a constant 
 This preserves the ties between zeroes, thus avoiding the problems with correlations above.
 To justify this, consider the process of correcting the raw expression values to remove the nuisance effects:
 
-1. There is a lower bound on the expression values, derived from a count of zero.
-2. An expression value at the lower bound cannot drop below the bound upon correction, by definition.
-3. An expression value at the lower bound cannot increase upon correction, as this suggests expression where there is no evidence for it.
-4. Thus, all expression values at the lower bound should attain the same corrected value (i.e., residual).
+1. There is a lower bound on the expression values, derived from applying the equivalent transformation to a count of zero.
+2. Correction involves modifying the expression values such that the coefficients for the nuisance effects are equal to zero.
+This is most easily done by replacing the expression values with their residuals plus some intercept term.
+3. An expression value at the lower bound cannot drop below the bound upon correction, by definition.
+Similarly, an expression value at the lower bound cannot increase upon correction, as this suggests expression where there is no evidence for it.
+Thus, all expression values at the lower bound should stay at the bound upon correction.
+4. The intercept is defined so that the corrected values of non-lower-bound observations are always greater than the lower bound.
+This is reasonable as there is evidence for expression for those observations compared to values at the bound.
 
-The constant value is defined as some value below the smallest residual across all observations.
-This assumes that a corrected value derived from a non-zero count can never be smaller than a corrected value derived from a zero count.
+To implement this, we fit a linear model, compute the residuals, and set the residuals for all lower-bound observations to a value below the smallest residual.
+This is equivalent to computing corrected values with an intercept value that fulfills requirement 4 above.
 The exact value does not matter for rank-based methods, as long as it is clearly lower than other residuals.
 
-So, to this end, we can have a look at the performance of _scran_'s correlation calculator with a lower bound.
+We now look at the performance of _scran_'s correlation calculator with a lower bound.
 This avoids the problems with overstatement of the correlation.
-The _p_-values are unlikely to be accurate here, but the normality assumption in simulating the observations is probably a bigger problem.
+While the _p_-values are unlikely to be accurate here, the normality assumption in simulating the observations is a bigger problem, so don't sweat the small stuff.
 
 ```{r}
 set.seed(1020)
