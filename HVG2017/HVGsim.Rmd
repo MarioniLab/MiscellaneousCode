@@ -220,6 +220,7 @@ sum(out$FDR <= 0.05, na.rm=TRUE)
 
 An even greater reduction in background is observed with the log-variance method.
 However, the log-transformation squishes the highly expressing genes downward and reduces the biological component, so you don't get anything with `bio > 0.5`.
+Even if the log-fold changes between subpopulations is strong, the average squared difference across all cells would be low when one subpopulation is rare.
 
 <!--
 16/47 and 0/0
