@@ -9,7 +9,8 @@ output:
 
 ```{r, echo=FALSE, results="hide"}
 set.seed(100)
-knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+dir.create("figure-pca")
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, fig.path="figure-pca/")
 ```
 
 # Introduction 
@@ -26,7 +27,7 @@ The observed expression should have some degree of added technical noise, while 
 choosePC <- function(pca, observed, truth) {
     leftovers <- sum(apply(observed, 1, var)) - sum(apply(truth, 1, var))
     npcs <- ncol(pca$x)
-    npcs - max(which(cumsum(rev(pca$sdev^2)) <= leftovers)) 
+    npcs - min(which(cumsum(rev(pca$sdev^2)) > leftovers)) + 1
 }
 ```
 

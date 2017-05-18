@@ -65,23 +65,22 @@ displayvals <- c(0.02, 0.05, 0.1, 0.2, 0.5, 1, 2)
 cols <- topo.colors(length(displayvals))
 for (i in seq_along(displayvals)) {
     meanval <- displayvals[i]
-    to.use <- collected[collected[,2] <= meanval,]
-    to.use <- to.use[order(to.use[,1]),]
+    to.use <- collected[collected[,2] <= meanval,,drop=FALSE]
+    to.use <- to.use[order(to.use[,1]),,drop=FALSE]
     keep <- cummax(to.use[,3]) <= to.use[,3] | rev(cummax(rev(to.use[,3]))) <= to.use[,3]
-    to.use <- to.use[keep,]
+    to.use <- to.use[keep,,drop=FALSE]
     lines(to.use[,1], to.use[,3], col=cols[i], lwd=2)
     text(tail(to.use[,1], 1), tail(to.use[,3], 1), pos=4, meanval, col=cols[i])
 }
 ```
 
-In the HVG data set (result of running https://github.com/MarioniLab/BiocWorkflow2016/workflow.Rmd), an average count of 1 corresponds to a maximum variance of around 1.
+In the HSC data set (result of running https://github.com/MarioniLab/BiocWorkflow2016/workflow.Rmd), an average count of 1 corresponds to a maximum variance of around 1.
 The technical noise is around about this much anyway, so it makes no sense to keep genes with lower average counts, because they just wouldn't be called as HVGs.
 In fact, we could be more stringent and require some minimum increase above the technical noise, but we won't do that.
 
-
 ```{r}
-to.use <- collected[collected[,2] <= 1,]
-plot(to.use[,1], to.use[,3], xlim=c(0, 1), ylim=c(0, 1))
+to.use <- collected[collected[,2] <= 1,,drop=FALSE]
+plot(to.use[,1], to.use[,3], xlim=c(0, 1), ylim=c(0, 1.5))
 comp <- read.table("hsc_hvg.tsv", header=TRUE)
 o <- order(comp$mean)
 lines(comp$mean[o], comp$tech[o], col="red", pch=16, cex=0.5)
@@ -93,7 +92,7 @@ It depends somewhat on whether you want to extrapolate the technical trend with 
 In both cases, though, it's safe to say that the maximum variances are less than or comparable to the trend.
 
 ```{r}
-to.use <- collected[collected[,2] <= 0.1,]
+to.use <- collected[collected[,2] <= 0.1,,drop=FALSE]
 plot(to.use[,1], to.use[,3],xlim=c(0, 1), ylim=c(0, 1))
 comp <- read.table("brain_hvg.tsv", header=TRUE)
 o <- order(comp$mean)
@@ -101,7 +100,7 @@ lines(comp$mean[o], comp$tech[o], col="red", pch=16, cex=0.5)
 ```
 
 Note that directly filtering on the log-means is _technically_ correct, in that it's independent of HVG detection.
-That probably doesn't matter much, though, given that we filter on the means in `voom` prior to _limma_ anyway.
+That probably doesn't matter much, though, given that we filter on the raw means in `voom` prior to _limma_ anyway.
 
 ## Based on the upper bound for the coefficient of variation
 
