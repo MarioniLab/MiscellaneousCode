@@ -112,6 +112,15 @@ It is subsequently impossible to detect genes with lower means as HVGs, so these
 The critical point described above is dependent on the shape of the technical trend.
 This may be more or less stringent than the threshold for the variance of log-expression, it's hard to tell in general.
 
+## Based on the Poisson limit
+
+If you have a gene where the maximum count is 1, you can treat this as a Bernoulli random variable.
+This has variance that is always sub-Poisson, no matter how heterogeneous the true gene expression is across cells.
+HVG calling becomes conceptually pointless for these genes, given that capture (and sequencing, for non-UMI methods) would be at least Poisson anyway.
+In fact, the mean-variance trend ceases to have any scatter because all genes will fall on the $V = \mu^{-1} - 1$ line.
+Filtering gets rid of these low-abundance genes that are not going to be called anyway.
+(The exact threshold depends on the number of cells and the true dispersion; fewer cells and lower dispersions makes a Bernoulli RV more likely.)
+
 ## Using the "at least N" filter
 
 This filter selects genes that are "expressed" in at least _N_ cells.

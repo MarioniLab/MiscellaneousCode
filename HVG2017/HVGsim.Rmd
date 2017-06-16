@@ -220,6 +220,7 @@ sum(out$FDR <= 0.05, na.rm=TRUE)
 
 An even greater reduction in background is observed with the log-variance method.
 However, the log-transformation squishes the highly expressing genes downward and reduces the biological component, so you don't get anything with `bio > 0.5`.
+Even if the log-fold changes between subpopulations is strong, the average squared difference across all cells would be low when one subpopulation is rare.
 
 <!--
 16/47 and 0/0
@@ -261,6 +262,11 @@ counts[to.change,1:nrare] <- 0
 ```
 
 CV^2^ detects a few, presumably because loss of expression doesn't make a big dent on the CV^2^ when the mean is already large.
+To illustrate, outliers have expression profiles like scaled Bernoulli variables;
+the scaling represents the size of the non-zero counts, while the probability $p$ is the proportion of non-zero counts.
+The CV^2^ of such a variable is equal to $p^{-1}-1$, invariant with respect to scaling and decreasing with increasing $p$.
+For any given proportion, this shows up on the CV^2^ plot as a horizontal line at a height depending on $p$.
+If $p$ is high, you'll need a large mean (i.e., more scaling) to get the horizontal line above the technical trend.
 
 <!--
 21/259, and 67/469
