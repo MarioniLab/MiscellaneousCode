@@ -214,6 +214,8 @@ sum(apply(r, 2, var))/sum(apply(y, 1, var))
 
 # Do we still need to identify correlated HVGs?
 
+## In the context of selecting `k`
+
 The relative contribution of technical noise to the total variance should be mitigated by HVG selection.
 This should reduce the extent to which technical noise leaks into the higher PCs.
 
@@ -250,3 +252,35 @@ library(gplots)
 heatmap.2(t(x$x[,1:chosen]), trace="none", col=bluered)
 ```
 -->
+
+## In the general analysis pipeline
+
+An alternative to feature selection by detecting correlated HVGs is to simply take the first set of PCs.
+This will immediately summarize genes into correlated _and_ highly variable axes, which is more direct than multi-step approach.
+There are, however, several problems with just using PCA by itself:
+
+- Choosing the number of components to keep is not trivial.
+A choice of 20 might be good in some circumstances and insufficient in others, especially if you have lots of non-linearity.
+- Interpretability is lost with PCs, which are abstract analytical entities in a different subspace.
+The nature of HVGs and correlations is easy to understand and can be used in intermediate steps (e.g., to build regulatory networks, to compare heterogeneity).
+- Small but consistent correlations may explain a lot of variability and contribute to one of the earlier PCs.
+These may not be interesting if they are due to tighly co-regulated but lowly variable house-keeping genes, or technical factors as mentioned above.
+- Lots of noise will still cause problems for PCA, even if that noise is random.
+The simulation below is pathological in order to affect early PCs, but you can reasonably expect later PCs to soak up spurious correlations between genes.
+
+```{r}
+set.seed(200)
+par(mfrow=c(1,2))
+loc <- 1:100 # True placement of cells
+a1 <- matrix(loc, ncol=100, nrow=10, byrow=TRUE) # A small subset of correlated genes
+x1 <- prcomp(t(a1), scale=TRUE)
+plot(x1$x[,1]) # Should be on the diagonal
+a2 <- rbind(a1, matrix(rnorm(100000), ncol=100)) # Adding many genes with uncorrelated noise
+x2 <- prcomp(t(a2), scale=TRUE)
+plot(x2$x[,1]) # Correct placing is disrupted
+```
+
+In any case, I would still recommend filtering on abundance when you use PCA, even if you don't use correlated HVGs to do so.
+This reduces the effect of sampling noise (when `scale=TRUE`), as this is more dominant in low-abundance genes.
+It also ensures that the PCs are driven by genes that are actually expressed at a decent level, which is more interesting and easier to intepret (and validate!).
+
