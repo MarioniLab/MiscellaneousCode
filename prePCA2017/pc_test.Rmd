@@ -257,15 +257,22 @@ heatmap.2(t(x$x[,1:chosen]), trace="none", col=bluered)
 
 An alternative to feature selection by detecting correlated HVGs is to simply take the first set of PCs.
 This will immediately summarize genes into correlated _and_ highly variable axes, which is more direct than multi-step approach.
-There are, however, several problems with just using PCA by itself:
-
-- Choosing the number of components to keep is not trivial.
+There are, however, several problems with just using PCA by itself.
+The most obvious is that choosing the number of components to keep is not trivial.
 A choice of 20 might be good in some circumstances and insufficient in others, especially if you have lots of non-linearity.
-- Interpretability is lost with PCs, which are abstract analytical entities in a different subspace.
-The nature of HVGs and correlations is easy to understand and can be used in intermediate steps (e.g., to build regulatory networks, to compare heterogeneity).
-- Small but consistent correlations may explain a lot of variability and contribute to one of the earlier PCs.
-These may not be interesting if they are due to tighly co-regulated but lowly variable house-keeping genes, or technical factors as mentioned above.
-- Lots of noise will still cause problems for PCA, even if that noise is random.
+This is somewhat assisted by using the approach described above.
+
+Another problem is that interpretability is lost with PCs, which are abstract analytical entities in a different subspace.
+You _could_ use the loadings, but this only explains the contribution within each PC, not within the entire data set, and is not statistically rigorous.
+Moreover, the ranking of genes based on their loadings doesn't make sense after scaling, where the absolute contribution of each gene to the total variance is lost. 
+Conversely, without scaling, interpretation requires consideration of the loading and the variance of each gene.
+The nature of HVGs and correlations is easy to understand and can be used in intermediate steps, e.g., to build regulatory networks, to compare heterogeneity.
+
+There are also smaller problems with the nature of scRNA-seq data.
+Small but consistent correlations across many genes may explain a lot of variability and contribute to one of the earlier PCs.
+These may not be interesting if they are due to tighly co-regulated but lowly variable genes, or caused by technical factors as mentioned above.
+Lots of random noise will also cause problems for PCA, by reducing the precision of the estimated covariance matrix and calculation of loadings;
+and by increasing the noise with each cell is projected onto the low-dimensional space.
 The simulation below is pathological in order to affect early PCs, but you can reasonably expect later PCs to soak up spurious correlations between genes.
 
 ```{r}
